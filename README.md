@@ -1,5 +1,7 @@
 # griffine
 
+![The griffine logo](./images/griffine_logo_flattened_recolor.svg)
+
 Utilities for working with *gri*ds that have a*ffine* transforms, typically for
 working with rasters or other gridded data.
 
