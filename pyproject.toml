@@ -1,0 +1,85 @@
+[project]
+name = "griffine"
+description = "Utilities for working with raster grids defined by affine transforms"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "affine>=2.4.0",
+    "pygeoif>=1.5.1",
+]
+dynamic = [
+    'version',
+]
+
+[build-system]
+requires = [
+    "hatchling",
+    "hatch-vcs",
+]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/griffine/__version__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/griffine"]
+
+[tool.ruff.format]
+quote-style = 'single'
+
+[tool.ruff.lint]
+# https://docs.astral.sh/ruff/rules/
+select = [
+    'B',
+    'BLE',
+    'C4',
+    'C90',
+    'COM',
+    'DTZ',
+    'E',
+    'ERA',
+    'F',
+    'FA',
+    'G',
+    'I',
+    'INP',
+    'N',
+    'NPY',
+    'PT',
+    'PTH',
+    'RET',
+    'RUF',
+    'S',
+    'SIM',
+    'T20',
+    'UP',
+    'W',
+
+]
+
+[tool.ruff.lint.per-file-ignores]
+'__init__.py' = ['E402']
+'tests/**/*' = ['T201', 'S101']
+
+[tool.ruff.lint.isort]
+lines-between-types = 1
+
+[tool.mypy]
+ignore_missing_imports = true
+scripts_are_modules = true
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = 'function'
+
+[dependency-groups]
+dev = [
+    "mypy>=1.15.0",
+    "pre-commit>=4.2.0",
+    "pre-commit-hooks>=5.0.0",
+    "pytest>=8.3.5",
+    "pytest-cov>=6.1.1",
+    "ruff>=0.11.6",
+]
