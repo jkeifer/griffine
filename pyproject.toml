@@ -71,9 +71,6 @@ lines-between-types = 1
 ignore_missing_imports = true
 scripts_are_modules = true
 
-[tool.pytest.ini_options]
-asyncio_default_fixture_loop_scope = 'function'
-
 [dependency-groups]
 dev = [
     "mypy>=1.15.0",
