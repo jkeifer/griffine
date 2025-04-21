@@ -6,6 +6,13 @@ from typing import Annotated, Generic, Protocol, Self, TypeVar, runtime_checkabl
 
 from affine import Affine
 
+from griffine.exceptions import (
+    InvalidCoordinateError,
+    InvalidGridError,
+    InvalidTilingError,
+    OutOfBoundsError,
+)
+
 NonNegativeInt = Annotated[int, ">=0"]
 PositiveInt = Annotated[int, ">=1"]
 Rows = Annotated[PositiveInt, "number of rows"]
@@ -17,11 +24,47 @@ class CellType(Protocol):
     row: NonNegativeInt
     col: NonNegativeInt
 
+    def __init__(
+        self,
+        row: NonNegativeInt,
+        col: NonNegativeInt,
+        *args,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+
+        if row < 0:
+            raise InvalidCoordinateError('cell row must be 0 or greater')
+
+        if col < 0:
+            raise InvalidCoordinateError('cell col must be 0 or greater')
+
+        self.row = row
+        self.col = col
+
 
 @runtime_checkable
 class GridType(Protocol):
     rows: Rows
     cols: Columns
+
+    def __init__(
+        self,
+        rows: Rows,
+        cols: Columns,
+        *args,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+
+        if rows < 1:
+            raise InvalidGridError('grid rows must be 1 or greater')
+
+        if cols < 1:
+            raise InvalidGridError('grid cols must be 1 or greater')
+
+        self.rows = rows
+        self.cols = cols
 
     @property
     def size(self) -> tuple[Rows, Columns]:
@@ -29,40 +72,46 @@ class GridType(Protocol):
 
     def __getitem__(
         self,
-        row_index: NonNegativeInt,
-        col_index: NonNegativeInt,
+        coords: tuple[int, int],
     ) -> GridCell[Self]:
-        if row_index >= self.rows:
-            raise IndexError('row index out of range')
+        row = coords[0] if coords[0] >= 0 else coords[0] + self.rows
+        col = coords[1] if coords[1] >= 0 else coords[1] + self.cols
 
-        if col_index >= self.cols:
-            raise IndexError('column index out of range')
+        if row < 0 or row >= self.rows:
+            raise OutOfBoundsError('row outside grid')
 
-        return GridCell(row_index, col_index, self)
+        if col < 0 or col >= self.cols:
+            raise OutOfBoundsError('column outside grid')
+
+        return GridCell(row, col, self)
 
 
 @runtime_checkable
 class TransformableType(Protocol):
     transform: Affine
 
-
-
-
+    def __init__(
+        self,
+        transform: Affine,
+        *args,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.transform = transform
 
 
 T = TypeVar('T', bound=GridType)
 
 
-class GridCell(Generic[T]):
+class GridCell(CellType, Generic[T]):
     def __init__(
         self,
         row: NonNegativeInt,
         col: NonNegativeInt,
-        parent: T,
+        grid: T,
     ) -> None:
-        self.row = row
-        self.col = col
-        self.parent = parent
+        super().__init__(row=row, col=col)
+        self.grid = grid
 
 
 class GridTile(GridType, GridCell[T]):
@@ -72,13 +121,10 @@ class GridTile(GridType, GridCell[T]):
         col: NonNegativeInt,
         rows: Rows,
         cols: Columns,
-        parent: T,
+        grid: T,
     ) -> None:
-        self.row = row
-        self.col = col
-        self.rows = rows
-        self.cols = cols
-        self.parent = parent
+        super().__init__(row=row, col=col, rows=rows, cols=cols)
+        self.grid = grid
 
 
 def can_tile_into(grid_size: PositiveInt, tile_count: PositiveInt) -> bool:
@@ -100,7 +146,7 @@ class TileableType(GridType, Protocol):
             self.cols < grid.cols
             or self.rows < grid.rows
         ):
-            raise ValueError(
+            raise InvalidTilingError(
                 f'Cannot tile grid of size {self.size} with tiles of size {grid.size}',
             )
 
@@ -119,7 +165,7 @@ class TileableType(GridType, Protocol):
             can_tile_into(self.rows, grid.rows)
             and can_tile_into(self.cols, grid.cols)
         ):
-            raise ValueError(
+            raise InvalidTilingError(
                 f'Cannot tile grid of size {self.size} into grid {grid.size}',
             )
 
@@ -138,16 +184,32 @@ class Tiled(Generic[T], Protocol):
     tile_rows: Rows
     tile_cols: Columns
 
+    def __init__(
+        self,
+        base_grid: T,
+        tile_rows: Rows,
+        tile_cols: Columns,
+        *args,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+
+        if tile_rows < 1:
+            raise InvalidGridError('tile grid rows must be 1 or greater')
+
+        if tile_cols < 1:
+            raise InvalidGridError('tile grid cols must be 1 or greater')
+
+        self.base_grid = base_grid
+        self.tile_rows = tile_rows
+        self.tile_cols = tile_cols
+
     @property
     def tile_size(self) -> tuple[Rows, Columns]:
         return self.tile_rows, self.tile_cols
 
 
 class Grid(TileableType, GridType):
-    def __init__(self, rows: Rows, cols: Columns) -> None:
-        self.rows = rows
-        self.cols = cols
-
     def _tiled(
         self,
         grid_size: tuple[Rows, Columns],
@@ -171,9 +233,7 @@ class Grid(TileableType, GridType):
 
 class AffineGrid(TransformableType, TileableType, GridType):
     def __init__(self, rows: Rows, cols: Columns, transform: Affine) -> None:
-        self.rows = rows
-        self.cols = cols
-        self.transform = transform
+        super().__init__(rows=rows, cols=cols, transform=transform)
 
     def _tiled(
         self,
@@ -206,11 +266,13 @@ class TiledGrid(Tiled, GridType):
         tile_cols: Columns,
         base_grid: Grid,
     ) -> None:
-        self.rows = rows
-        self.cols = cols
-        self.tile_rows = tile_rows
-        self.tile_cols = tile_cols
-        self.base_grid = base_grid
+        super().__init__(
+            rows=rows,
+            cols=cols,
+            tile_rows=tile_rows,
+            tile_cols=tile_cols,
+            base_grid=base_grid,
+        )
 
     def add_transform(self, transform: Affine) -> TiledAffineGrid:
         base = self.base_grid.add_transform(
@@ -243,10 +305,12 @@ class TiledAffineGrid(Tiled, TransformableType, GridType):
         base_grid: AffineGrid,
         transform: Affine,
     ) -> None:
-        self.rows = rows
-        self.cols = cols
-        self.tile_rows = tile_rows
-        self.tile_cols = tile_cols
-        self.base_grid = base_grid
-        self.transform = transform
+        super().__init__(
+            rows=rows,
+            cols=cols,
+            tile_rows=tile_rows,
+            tile_cols=tile_cols,
+            base_grid=base_grid,
+            transform=transform,
+        )
     # TODO: need to make sure base grid gets appropriate transform?
