@@ -65,3 +65,50 @@ def test_grid_add_transform() -> None:
     grid = Grid(10000, 5000)
     transform = Affine(10, 0, 200000, 0, -10, 6100000)
     _ = grid.add_transform(transform)
+
+
+@pytest.mark.parametrize(
+    'coords,index',
+    [
+        ((0, 0), 0),
+        ((9, 9), 99),
+        ((4, 9), 49),
+        ((5, 0), 50),
+        ((0, 5), 5),
+    ],
+)
+def test_grid_cell_linear_index(
+    coords: tuple[int, int],
+    index: int,
+) -> None:
+    rows, cols = 10, 10
+    grid = Grid(rows, cols)
+    cell = grid[coords]
+    linear_index = cell.linear_index
+    assert linear_index == index
+
+
+def test_grid_tile_via() -> None:
+    grid = Grid(10000, 5000)
+    tiled = grid.tile_via(Grid(1024, 1024))
+    assert tiled.base_grid is grid
+    assert tiled.tile_rows == 1024
+    assert tiled.tile_cols == 1024
+    assert tiled.tile_size == (1024, 1024)
+    tile1 = tiled[0, 0]
+    assert tile1.row == 0
+    assert tile1.col == 0
+    assert tile1.rows == 1024
+    assert tile1.cols == 1024
+    cell1 = tile1[0, 0]
+    assert cell1.row == 0
+    assert cell1.col == 0
+    tile2 = tiled[9, 4]
+    assert tile2.row == 9
+    assert tile2.col == 4
+    assert tile2.rows == 1000
+    assert tile2.cols == 1000
+    cell2 = tile2[0, 0]
+    assert cell2.row == 0
+    assert cell2.col == 0
+
