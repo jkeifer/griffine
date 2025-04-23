@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import math
 
-from typing import Annotated, Generic, Protocol, Self, TypeVar, runtime_checkable
+from abc import abstractmethod
+from typing import Annotated, Protocol, TypeVar, runtime_checkable
 
 from affine import Affine
+from pygeoif import Point
 
 from griffine.exceptions import (
     InvalidCoordinateError,
@@ -18,6 +20,9 @@ PositiveInt = Annotated[int, ">=1"]
 Rows = Annotated[PositiveInt, "number of rows"]
 Columns = Annotated[PositiveInt, "number of columns"]
 
+GT = TypeVar('GT', bound='GridType')
+GT_cov = TypeVar('GT_cov', bound='GridType', covariant=True)
+
 
 @runtime_checkable
 class CellType(Protocol):
@@ -28,10 +33,9 @@ class CellType(Protocol):
         self,
         row: NonNegativeInt,
         col: NonNegativeInt,
-        *args,
         **kwargs,
     ) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__(**kwargs)
 
         if row < 0:
             raise InvalidCoordinateError('cell row must be 0 or greater')
@@ -42,9 +46,74 @@ class CellType(Protocol):
         self.row = row
         self.col = col
 
+    @property
+    def size(self) -> tuple[Rows, Columns]:
+        return (1, 1)
+
+
+class TiledCellType(CellType, Protocol):
+    # TODO parent grid should be the actual grid, and have a tile grid???
+    parent_grid: GridTileType
+    tile_row: NonNegativeInt
+    tile_col: NonNegativeInt
+
+    def __init__(
+        self,
+        tile_row: NonNegativeInt,
+        tile_col: NonNegativeInt,
+        parent_grid: GridTileType,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.tile_row = tile_row
+        self.tile_col = tile_col
+        self.parent_grid = parent_grid
+
+
+class TransformableType(Protocol):
+    transform: Affine
+
+    def __init__(
+        self,
+        transform: Affine,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.transform = transform
+
+    @property
+    @abstractmethod
+    def size(self) -> tuple[Rows, Columns]:  # pragma: no cover
+        raise NotImplementedError
+
+
+    @property
+    def width(self) -> int:
+        return self.transform.a * self.size[1]
+
+    @property
+    def heigth(self) -> int:
+        return self.transform.e * self.size[0]
+
+    @property
+    def origin(self) -> Point:
+        return Point(*(self.transform * (0, 0)))
+
+    @property
+    def centroid(self) -> Point:
+        coords =  (x / 2 for x in self.size[::-1])
+        return Point(*(self.transform * coords))
+
+    @property
+    def antiorigin(self) -> Point:
+        return Point(*(self.transform * self.size[::-1]))
+
+
+CT_cov = TypeVar("CT_cov", bound=CellType, covariant=True)
+
 
 @runtime_checkable
-class GridType(Protocol):
+class GridType(Protocol[CT_cov]):
     rows: Rows
     cols: Columns
 
@@ -52,10 +121,9 @@ class GridType(Protocol):
         self,
         rows: Rows,
         cols: Columns,
-        *args,
         **kwargs,
     ) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__(**kwargs)
 
         if rows < 1:
             raise InvalidGridError('grid rows must be 1 or greater')
@@ -70,10 +138,21 @@ class GridType(Protocol):
     def size(self) -> tuple[Rows, Columns]:
         return self.rows, self.cols
 
+    def linear_index(self, cell: CellType) -> NonNegativeInt:
+        return (self.cols * cell.row) + cell.col
+
+    @abstractmethod
+    def _get_cell(
+        self,
+        row: NonNegativeInt,
+        col: NonNegativeInt,
+    ) -> CT_cov:  # pragma: no cover
+        raise NotImplementedError
+
     def __getitem__(
         self,
         coords: tuple[int, int],
-    ) -> GridCell[Self]:
+    ) -> CT_cov:
         row = coords[0] if coords[0] >= 0 else coords[0] + self.rows
         col = coords[1] if coords[1] >= 0 else coords[1] + self.cols
 
@@ -83,41 +162,176 @@ class GridType(Protocol):
         if col < 0 or col >= self.cols:
             raise OutOfBoundsError('column outside grid')
 
-        return GridCell(row, col, self)
+        return self._get_cell(row, col)
 
 
-@runtime_checkable
-class TransformableType(Protocol):
-    transform: Affine
+class TileType(GridType[CT_cov], CellType, Protocol[CT_cov]):
+    def __init__(
+        self,
+        row: NonNegativeInt,
+        col: NonNegativeInt,
+        rows: Rows,
+        cols: Columns,
+        **kwargs,
+    ) -> None:
+        super().__init__(row=row, col=col, rows=rows, cols=cols, **kwargs)
+
+
+class GridTileType(TileType[CT_cov], Protocol[CT_cov]):
+    parent_grid: TiledGridType
 
     def __init__(
         self,
-        transform: Affine,
-        *args,
+        row: NonNegativeInt,
+        col: NonNegativeInt,
+        parent_grid: TiledGridType,
         **kwargs,
     ) -> None:
-        super().__init__(*args, **kwargs)
-        self.transform = transform
+        # If tile is on the right and/or bottom edge, the size might
+        # not be the same as indicated by the nominal tile dimensions
+        tile_rows = parent_grid.tile_rows
+        tile_cols = parent_grid.tile_cols
+        rows = min(tile_rows, parent_grid.base_grid.rows - (row * tile_rows))
+        cols = min(tile_cols, parent_grid.base_grid.cols - (col * tile_cols))
+
+        super().__init__(row=row, col=col, rows=rows, cols=cols, **kwargs)
+        self.parent_grid = parent_grid
+
+    def tile_coords_to_parent_coords(
+        self,
+        row: NonNegativeInt,
+        col: NonNegativeInt,
+    ) -> tuple[NonNegativeInt, NonNegativeInt]:
+        return (
+            (self.row * self.parent_grid.tile_rows) + row,
+            (self.col * self.parent_grid.tile_cols) + col,
+        )
 
 
-T = TypeVar('T', bound=GridType)
+class AffineGridTileType(
+    GridTileType[CT_cov],
+    TransformableType,
+    Protocol[CT_cov],
+):
+    def __init__(
+        self,
+        row: NonNegativeInt,
+        col: NonNegativeInt,
+        parent_grid: TransformableTiledGridType,
+        **kwargs,
+    ) -> None:
+        transform = Affine(
+            parent_grid.transform.a,
+            parent_grid.transform.b,
+            parent_grid.transform.c + (parent_grid.transform.a * col),
+            parent_grid.transform.d,
+            parent_grid.transform.e,
+            parent_grid.transform.f + (parent_grid.transform.e * row),
+        )
+        super().__init__(
+            row=row,
+            col=col,
+            parent_grid=parent_grid,
+            transform=transform,
+            **kwargs,
+        )
+
+
+GTT_cov = TypeVar("GTT_cov", bound=GridTileType, covariant=True)
+
+
+@runtime_checkable
+class TiledGridType(GridType[GTT_cov], Protocol[GT, GTT_cov]):
+    base_grid: GT
+    tile_rows: Rows
+    tile_cols: Columns
+
+    def __init__(
+        self,
+        tile_rows: Rows,
+        tile_cols: Columns,
+        base_grid: GT,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+
+        if tile_rows < 1:
+            raise InvalidGridError('tile grid rows must be 1 or greater')
+
+        if tile_cols < 1:
+            raise InvalidGridError('tile grid cols must be 1 or greater')
+
+        self.tile_rows = tile_rows
+        self.tile_cols = tile_cols
+        self.base_grid = base_grid
+
+    @property
+    def tile_size(self) -> tuple[Rows, Columns]:
+        return self.tile_rows, self.tile_cols
+
+    @abstractmethod
+    def _get_cell(
+        self,
+        row: NonNegativeInt,
+        col: NonNegativeInt,
+    ) -> GTT_cov:  # pragma: no cover
+        raise NotImplementedError
+
+    def __getitem__(
+        self,
+        coords: tuple[int, int],
+    ) -> GTT_cov:
+        # If coords are negative coerce to a non-negative equivalent
+        # e.g., -1 is equivalent to the value given by len(self) - 1
+        row = coords[0] if coords[0] >= 0 else coords[0] + self.rows
+        col = coords[1] if coords[1] >= 0 else coords[1] + self.cols
+
+        if row < 0 or row >= self.rows:
+            raise OutOfBoundsError('row outside grid')
+
+        if col < 0 or col >= self.cols:
+            raise OutOfBoundsError('column outside grid')
+
+        return self._get_cell(
+            row,
+            col,
+        )
+
+
+class TransformableGridType(
+    GridType[CT_cov],
+    TransformableType,
+    Protocol[CT_cov],
+):
+    ...
+
+
+class TransformableTiledGridType(
+    TiledGridType[GT, GTT_cov],
+    TransformableType,
+    Protocol[GT, GTT_cov],
+):
+    ...
+
+
+TGT_cov = TypeVar("TGT_cov", bound=TiledGridType, covariant=True)
 
 
 def can_tile_into(grid_size: PositiveInt, tile_count: PositiveInt) -> bool:
     return tile_count == math.ceil(grid_size/math.ceil(grid_size/tile_count))
 
 
-class TileableType(GridType, Protocol):
+class TileableType(GridType[CT_cov], Protocol[CT_cov, TGT_cov]):
+    @abstractmethod
     def _tiled(
         self,
         grid_size: tuple[Rows, Columns],
         tile_size: tuple[Rows, Columns],
-    ) -> TiledType[Self]:
+    ) -> TGT_cov:  # pragma: no cover
         raise NotImplementedError
 
-    def tile_via(self, grid: GridType) -> TiledType[Self]:
+    def tile_via(self, grid: GridType) -> TGT_cov:
         '''Tile self where each tile is the size of `grid`.'''
-        ...
         if (
             self.cols < grid.cols
             or self.rows < grid.rows
@@ -134,9 +348,8 @@ class TileableType(GridType, Protocol):
             grid.size,
         )
 
-    def tile_into(self, grid: GridType) -> TiledType[Self]:
+    def tile_into(self, grid: GridType) -> TGT_cov:
         '''Tile self into the tile grid is given by `grid`.'''
-        ...
         if not (
             can_tile_into(self.rows, grid.rows)
             and can_tile_into(self.cols, grid.cols)
@@ -152,88 +365,3 @@ class TileableType(GridType, Protocol):
             grid.size,
             (tile_rows, tile_cols),
         )
-
-
-@runtime_checkable
-class TiledType(Generic[T], GridType, Protocol):
-    base_grid: T
-    tile_rows: Rows
-    tile_cols: Columns
-
-    def __init__(
-        self,
-        base_grid: T,
-        tile_rows: Rows,
-        tile_cols: Columns,
-        *args,
-        **kwargs,
-    ) -> None:
-        super().__init__(*args, **kwargs)
-
-        if tile_rows < 1:
-            raise InvalidGridError('tile grid rows must be 1 or greater')
-
-        if tile_cols < 1:
-            raise InvalidGridError('tile grid cols must be 1 or greater')
-
-        self.base_grid = base_grid
-        self.tile_rows = tile_rows
-        self.tile_cols = tile_cols
-
-    @property
-    def tile_size(self) -> tuple[Rows, Columns]:
-        return self.tile_rows, self.tile_cols
-
-    def __getitem__(
-        self,
-        coords: tuple[int, int],
-    ) -> GridTile[Self]:
-        row = coords[0] if coords[0] >= 0 else coords[0] + self.rows
-        col = coords[1] if coords[1] >= 0 else coords[1] + self.cols
-
-        if row < 0 or row >= self.rows:
-            raise OutOfBoundsError('row outside grid')
-
-        if col < 0 or col >= self.cols:
-            raise OutOfBoundsError('column outside grid')
-
-        # TODO: how to represent coords of tile cell in parent grid?
-        return GridTile(
-            row,
-            col,
-            self.tile_rows,
-            self.tile_cols,
-            self,
-        )
-
-
-class GridCell(CellType, Generic[T]):
-    def __init__(
-        self,
-        row: NonNegativeInt,
-        col: NonNegativeInt,
-        grid: T,
-    ) -> None:
-        super().__init__(row=row, col=col)
-        self.grid = grid
-
-    @property
-    def linear_index(self) -> NonNegativeInt:
-        '''
-        Find the index of the cell in the list of all cells in the grid,
-        as would be given by reshaping the grid into a 1-d array of
-        length rows * cols.
-        '''
-        return (self.grid.cols * self.row) + self.col
-
-
-class GridTile(GridType, GridCell[T]):
-    def __init__(
-        self,
-        row: NonNegativeInt,
-        col: NonNegativeInt,
-        rows: Rows,
-        cols: Columns,
-        grid: T,
-    ) -> None:
-        super().__init__(row=row, col=col, rows=rows, cols=cols, grid=grid)
