@@ -1,17 +1,22 @@
-from pygeoif import Point
 import pytest
+
+from pygeoif import Point
 
 from griffine import (
     Affine,
     Grid,
     OutOfBoundsError,
 )
-from griffine.exceptions import InvalidCoordinateError, InvalidGridError, InvalidTilingError
+from griffine.exceptions import (
+    InvalidCoordinateError,
+    InvalidGridError,
+    InvalidTilingError,
+)
 from griffine.grid import Cell
 
 
 @pytest.mark.parametrize(
-    ('rows' , 'cols'),
+    ('rows', 'cols'),
     [
         (10000, 5000),
         (1, 1),
@@ -22,7 +27,7 @@ def test_grid_constructor(rows: int, cols: int) -> None:
 
 
 @pytest.mark.parametrize(
-    ('rows' , 'cols'),
+    ('rows', 'cols'),
     [
         (0, 0),
         (-1, -1),
@@ -40,7 +45,7 @@ def test_grid_size() -> None:
 
 
 @pytest.mark.parametrize(
-    ('row' , 'col'),
+    ('row', 'col'),
     [
         (0, 0),
         (0, 1000),
@@ -53,7 +58,7 @@ def test_cell_constructor(row: int, col: int) -> None:
 
 
 @pytest.mark.parametrize(
-    ('row' , 'col'),
+    ('row', 'col'),
     [
         (-1, 0),
         (0, -1000),
@@ -201,14 +206,20 @@ def test_grid_tile_into() -> None:
 )
 def test_grid_tile_bad_coords(coords: tuple[int, int]) -> None:
     with pytest.raises(OutOfBoundsError):
-        Grid(1,1).tile_into(Grid(1,1))[coords]
-
+        Grid(1, 1).tile_into(Grid(1, 1))[coords]
 
 
 def test_affine_grid_ops() -> None:
-    affine_grid = Grid(10, 5).add_transform(Affine(
-        10, 0, 200000, 0, -10, 6100000,
-    ))
+    affine_grid = Grid(10, 5).add_transform(
+        Affine(
+            10,
+            0,
+            200000,
+            0,
+            -10,
+            6100000,
+        ),
+    )
     assert affine_grid.width == 5 * 10
     assert affine_grid.heigth == 10 * -10
     assert affine_grid.origin == Point(200000, 6100000)
@@ -229,9 +240,16 @@ def test_affine_grid_ops() -> None:
 
 
 def test_affine_grid_get_point_out_of_bounds() -> None:
-    affine_grid = Grid(10, 5).add_transform(Affine(
-        10, 0, 200000, 0, -10, 6100000,
-    ))
+    affine_grid = Grid(10, 5).add_transform(
+        Affine(
+            10,
+            0,
+            200000,
+            0,
+            -10,
+            6100000,
+        ),
+    )
     with pytest.raises(OutOfBoundsError):
         affine_grid.point_to_cell(Point(5000, 5000))
 
