@@ -55,45 +55,75 @@ protocol](https://gist.github.com/sgillies/2217756) is supported by all
 operations accepting a `Point` and on the `Point` class itself, to easily allow
 using or casting to point geometries from other Python libraries (`shapely`,
 `odc-geo`, etc.).
-
+affine_grid = grid.add_transform(transform)affine_cell.antiorigin
 ### Examples
 
 ```python
-from affine import Affine
-from griffine import Grid, Point, Tile
+# Affine re-exported from the affine package
+# Point is re-exported from the pygeoif package
+from griffine import Affine, Grid, Point
 
 # 10m pixel grid in UTM coordinates
-transform = Affine(10, 0, 200000, 0, -10, 6100000)
+transform = Affine(10, 0, 200000, 0, -10, 5100000)
 
 # First we create a grid!
 grid = Grid(10000, 5000)
 
+# We can grab a cell from the grid using index notation.
+cell = grid[424, 2343]
+cell.row  # 424
+cell.col  # 2343
+
 # We can tile the grid using another grid.
 # In this example we'd get a 10x5 tile grid
 # where each tile is a grid of 1000x1000.
-tile_0_0 = grid.tile(Grid(10, 5))[0][0]
+tile = grid.tile_into(Grid(10, 5))[0, 0]
 tile.size  # (1000, 1000)
 
 # We can also add an affine transform to our grid.
 # A transform allows converting between grid space and
 # model space (i.e., cell coords and spatial coords).
 affine_grid = grid.add_transform(transform)
-affine_cell_0_0 = affine_grid[0][0]
-affine_cell_0_0.origin  # Point(200000, 6100000)
-affine_cell_0_0.centroid  # Point(200005, 6099995)
-affine_cell_0_0.antiorigin  # Point(200010, 6099990)
+affine_grid.origin      # Point(200000.0, 5100000.0)
+affine_grid.centroid    # Point(225000.0, 5050000.0)
+affine_grid.antiorigin  # Point(250000.0, 5000000.0)
 
+# Affine grids also support grabbing a cell via
+# index notation. Affine grids will provide affine
+# cells, which support transform-based operations too.
+affine_cell = affine_grid[0, 0]
+affine_cell.origin      # Point(200000.0, 5100000.0)
+affine_cell.centroid    # Point(200005.0, 5099995.0)
+affine_cell.antiorigin  # Point(200010.0, 5099990.0)
 
-# Grids can be tiled by a tile size instead of a grid.
-# Here we'll get a 10x5 grid, but the left and bottom
-# edge tiles will not be full size.
-tiled_grid = grid.tile(Tile(1024, 1024))
+# Transform operations can go the other way too.
+# Let's make a point and find its enclosing cell!
+point = Point(223433.2934, 5095752.8931)
+affine_cell = affine_grid.point_to_cell(point)
+affine_cell.row  # 424
+affine_cell.col  # 2343
 
-# We can add a transform to a tiled grid too.
-# Doing so gives us the ability to convert
-# between tile coordinates and model space.
-tiled_affine_grid = tiled_grid.add_transform(transform)
-point = Point(
+# Grids can also be tiled via a tile size expressed
+# as a grid. Here we'll get a 10x5 tile grid, but the
+# left and bottom edge tiles will not be full size.
+tiled_affine_grid = affine_grid.tile_via(Grid(1024, 1024))
+
+# Affine-enabled tiles and tile grids also support
+# transform-based operations:
+affine_tile = tiled_affine_grid.point_to_tile(point)
+affine_tile.row  # 0
+affine_tile.col  # 2
+affine_tile_cell = affine_tile.point_to_cell(point)
+affine_tile_cell.row  # 424
+affine_tile_cell.col  # 2343
+affine_tile_cell.tile_row  # 0
+affine_tile_cell.tile_col  # 2
+
+# We can work our way back up to the original grid
+# from cells and tiles as needed:
+#
+#     cell          tile      tile grid    grid
+affine_tile_cell.parent_grid.parent_grid.base_grid is affine_grid  # True
 ```
 
 ## How to say "griffine"

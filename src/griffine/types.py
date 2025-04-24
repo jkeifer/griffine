@@ -58,7 +58,6 @@ class CellType(Protocol):
 
 @runtime_checkable
 class TiledCellType(CellType, Protocol):
-    # TODO parent grid should be the actual grid, and have a tile grid???
     parent_grid: GridTileType
     tile_row: NonNegativeInt
     tile_col: NonNegativeInt
@@ -239,6 +238,18 @@ class TiledGridType(GridType[GTT_cov], Protocol[GT, GTT_cov]):
             col,
         )
 
+    def tile_coords_to_base_coords(
+        self,
+        row: NonNegativeInt,
+        col: NonNegativeInt,
+        tile_row: NonNegativeInt,
+        tile_col: NonNegativeInt,
+    ) -> tuple[NonNegativeInt, NonNegativeInt]:
+        return (
+            (tile_row * self.tile_rows) + row,
+            (tile_col * self.tile_cols) + col,
+        )
+
 
 AGTT_cov = TypeVar('AGTT_cov', bound='AffineGridTileType', covariant=True)
 
@@ -254,7 +265,7 @@ class TransformableGridType(
         point: PointGeoType,
     ) -> tuple[NonNegativeInt, NonNegativeInt]:
         _point = shape(point) if not isinstance(point, Point) else point
-        # ignoring type error until v3.0 is officially released
+        # ignoring type error until affine v3.0 is officially released
         col, row = map(
             math.floor,
             ~self.transform * (_point.x, _point.y),  # type: ignore
@@ -304,15 +315,12 @@ class GridTileType(TileType[CT_cov], Protocol[CT_cov]):
         super().__init__(row=row, col=col, rows=rows, cols=cols, **kwargs)
         self.parent_grid = parent_grid
 
-    def tile_coords_to_parent_coords(
+    def tile_coords_to_base_coords(
         self,
         row: NonNegativeInt,
         col: NonNegativeInt,
     ) -> tuple[NonNegativeInt, NonNegativeInt]:
-        return (
-            (self.row * self.parent_grid.tile_rows) + row,
-            (self.col * self.parent_grid.tile_cols) + col,
-        )
+        return self.parent_grid.tile_coords_to_base_coords(row, col, self.row, self.col)
 
 
 @runtime_checkable
@@ -328,19 +336,14 @@ class AffineGridTileType(
         parent_grid: TransformableTiledGridType,
         **kwargs,
     ) -> None:
-        transform = Affine(
-            parent_grid.transform.a,
-            parent_grid.transform.b,
-            parent_grid.transform.c + (parent_grid.transform.a * col),
-            parent_grid.transform.d,
-            parent_grid.transform.e,
-            parent_grid.transform.f + (parent_grid.transform.e * row),
-        )
         super().__init__(
             row=row,
             col=col,
             parent_grid=parent_grid,
-            transform=transform,
+            transform=parent_grid.base_grid.transform
+            * Affine.translation(
+                *parent_grid.tile_coords_to_base_coords(0, 0, row, col)[::-1],
+            ),
             **kwargs,
         )
 

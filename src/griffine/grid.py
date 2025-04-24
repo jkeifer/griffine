@@ -256,7 +256,7 @@ class GridTile(GridTileType[TiledGridCell]):
         )
 
     def _get_cell(self, row: NonNegativeInt, col: NonNegativeInt) -> TiledGridCell:
-        row, col = self.tile_coords_to_parent_coords(row, col)
+        row, col = self.tile_coords_to_base_coords(row, col)
         return TiledGridCell(
             row=row,
             col=col,
@@ -284,7 +284,7 @@ class AffineGridTile(AffineGridTileType[TiledAffineGridCell]):
         row: NonNegativeInt,
         col: NonNegativeInt,
     ) -> TiledAffineGridCell:
-        row, col = self.tile_coords_to_parent_coords(row, col)
+        row, col = self.tile_coords_to_base_coords(row, col)
         return TiledAffineGridCell(
             row=row,
             col=col,

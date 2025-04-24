@@ -277,3 +277,22 @@ def test_tiling_error1(grid: tuple[int, int], tile_grid: tuple[int, int]) -> Non
 def test_tiling_error2(grid: tuple[int, int], tile_size: tuple[int, int]) -> None:
     with pytest.raises(InvalidTilingError):
         Grid(*grid).tile_via(Grid(*tile_size))
+
+
+def test_tiled_affine_ops() -> None:
+    transform = Affine(10, 0, 200000, 0, -10, 5100000)
+    grid = Grid(10000, 5000)
+    affine_grid = grid.add_transform(transform)
+    point = Point(223433.2934, 5095752.8931)
+    cell = affine_grid.point_to_cell(point)
+    assert cell.row == 424
+    assert cell.col == 2343
+    tiled_affine_grid = affine_grid.tile_via(Grid(99, 1024))
+    affine_tile = tiled_affine_grid.point_to_tile(point)
+    assert affine_tile.row == 4
+    assert affine_tile.col == 2
+    affine_tile_cell = affine_tile.point_to_cell(point)
+    assert affine_tile_cell.row == 424
+    assert affine_tile_cell.col == 2343
+    assert affine_tile_cell.tile_row == 4
+    assert affine_tile_cell.tile_col == 2
