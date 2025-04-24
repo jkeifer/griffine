@@ -44,7 +44,7 @@ system). `AffineGrids` allow looking up the `Point` represented by a `Cell`
 A `TiledAffineGrid` is to an `AffineGrid` as a `TiledGrid` is to a `Grid`: each
 `AffileTile` in a `TiledAffineGrid` is an `AffineGrid` representing some subset
 of the larger `AffineGrid` that was tiled. `TiledAffineGrids` allow finding the
-`AffineTile` containing` a `Cell` or a `Point`.
+`AffineTile` containing a `Cell` or a `Point`.
 
 `griffine` does not handle coordinate systems and thus does not do any
 reprojection. It is expected that users ensure they are using a consistent CRS
