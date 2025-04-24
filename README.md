@@ -4,7 +4,7 @@
 [![coverage-status-image]][codecov]
 [![pypi-version]][pypi]
 
-<img src="./images/griffine_logo_flattened_recolor.svg" width=300>
+<img src="./images/logo.svg" width=300>
 
 Utilities for working with *gri*ds that have a*ffine* transforms, typically for
 working with rasters or other gridded data.
