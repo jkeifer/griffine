@@ -16,17 +16,17 @@ from griffine.exceptions import (
     OutOfBoundsError,
 )
 
-NonNegativeInt = Annotated[int, ">=0"]
-PositiveInt = Annotated[int, ">=1"]
-Rows = Annotated[PositiveInt, "number of rows"]
-Columns = Annotated[PositiveInt, "number of columns"]
+NonNegativeInt = Annotated[int, '>=0']
+PositiveInt = Annotated[int, '>=1']
+Rows = Annotated[PositiveInt, 'number of rows']
+Columns = Annotated[PositiveInt, 'number of columns']
 
 GT = TypeVar('GT', bound='GridType')
 GT_cov = TypeVar('GT_cov', bound='GridType', covariant=True)
 
 
 # FUTURE: validation via automatic coercion into a Point type
-PointGeoType = Annotated[GeoType, "geom type is point"]
+PointGeoType = Annotated[GeoType, 'geom type is point']
 
 
 @runtime_checkable
@@ -107,7 +107,7 @@ class TransformableType(Protocol):
 
     @property
     def centroid(self) -> Point:
-        coords =  (x / 2 for x in self.size[::-1])
+        coords = (x / 2 for x in self.size[::-1])
         return Point(*(self.transform * coords))
 
     @property
@@ -120,11 +120,10 @@ class AffineTiledGridCellType(
     TiledCellType,
     TransformableType,
     Protocol,
-):
-    ...
+): ...
 
 
-CT_cov = TypeVar("CT_cov", bound=CellType, covariant=True)
+CT_cov = TypeVar('CT_cov', bound=CellType, covariant=True)
 
 
 @runtime_checkable
@@ -180,7 +179,7 @@ class GridType(Protocol[CT_cov]):
         return self._get_cell(row, col)
 
 
-GTT_cov = TypeVar("GTT_cov", bound='GridTileType', covariant=True)
+GTT_cov = TypeVar('GTT_cov', bound='GridTileType', covariant=True)
 
 
 @runtime_checkable
@@ -241,7 +240,7 @@ class TiledGridType(GridType[GTT_cov], Protocol[GT, GTT_cov]):
         )
 
 
-AGTT_cov = TypeVar("AGTT_cov", bound='AffineGridTileType', covariant=True)
+AGTT_cov = TypeVar('AGTT_cov', bound='AffineGridTileType', covariant=True)
 
 
 @runtime_checkable
@@ -258,7 +257,7 @@ class TransformableGridType(
         # ignoring type error until v3.0 is officially released
         col, row = map(
             math.floor,
-            ~self.transform * (_point.x,_point.y),  # type: ignore
+            ~self.transform * (_point.x, _point.y),  # type: ignore
         )
         return row, col
 
@@ -268,8 +267,7 @@ class TransformableTiledGridType(
     TiledGridType[GT, GTT_cov],
     TransformableGridType[GTT_cov],
     Protocol[GT, GTT_cov],
-):
-    ...
+): ...
 
 
 @runtime_checkable
@@ -347,11 +345,11 @@ class AffineGridTileType(
         )
 
 
-TGT_cov = TypeVar("TGT_cov", bound=TiledGridType, covariant=True)
+TGT_cov = TypeVar('TGT_cov', bound=TiledGridType, covariant=True)
 
 
 def can_tile_into(grid_size: PositiveInt, tile_count: PositiveInt) -> bool:
-    return tile_count == math.ceil(grid_size/math.ceil(grid_size/tile_count))
+    return tile_count == math.ceil(grid_size / math.ceil(grid_size / tile_count))
 
 
 @runtime_checkable
@@ -365,11 +363,8 @@ class TileableType(GridType[CT_cov], Protocol[CT_cov, TGT_cov]):
         raise NotImplementedError
 
     def tile_via(self, grid: GridType) -> TGT_cov:
-        '''Tile self where each tile is the size of `grid`.'''
-        if (
-            self.cols < grid.cols
-            or self.rows < grid.rows
-        ):
+        """Tile self where each tile is the size of `grid`."""
+        if self.cols < grid.cols or self.rows < grid.rows:
             raise InvalidTilingError(
                 f'Cannot tile grid of size {self.size} with tiles of size {grid.size}',
             )
@@ -383,10 +378,9 @@ class TileableType(GridType[CT_cov], Protocol[CT_cov, TGT_cov]):
         )
 
     def tile_into(self, grid: GridType) -> TGT_cov:
-        '''Tile self into the tile grid is given by `grid`.'''
+        """Tile self into the tile grid is given by `grid`."""
         if not (
-            can_tile_into(self.rows, grid.rows)
-            and can_tile_into(self.cols, grid.cols)
+            can_tile_into(self.rows, grid.rows) and can_tile_into(self.cols, grid.cols)
         ):
             raise InvalidTilingError(
                 f'Cannot tile grid of size {self.size} into grid {grid.size}',

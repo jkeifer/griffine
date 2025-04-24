@@ -71,9 +71,9 @@ class AffineGrid(
         )
 
     def point_to_cell(
-          self,
-          point: PointGeoType,
-      ) -> AffineGridCell:
+        self,
+        point: PointGeoType,
+    ) -> AffineGridCell:
         return self[self._point_to_coords(point)]
 
 
@@ -99,7 +99,8 @@ class TiledGrid(TiledGridType[Grid, 'GridTile']):
 
     def add_transform(self, transform: Affine) -> TiledAffineGrid:
         base = self.base_grid.add_transform(
-            transform * Affine.scale(
+            transform
+            * Affine.scale(
                 1 / self.tile_cols,
                 1 / self.tile_rows,
             ),
@@ -143,9 +144,9 @@ class TiledAffineGrid(
         return AffineGridTile(row=row, col=col, parent_grid=self)
 
     def point_to_tile(
-          self,
-          point: PointGeoType,
-      ) -> AffineGridTile:
+        self,
+        point: PointGeoType,
+    ) -> AffineGridTile:
         return self[self._point_to_coords(point)]
 
     def point_to_cell(
@@ -293,7 +294,7 @@ class AffineGridTile(AffineGridTileType[TiledAffineGridCell]):
         )
 
     def point_to_cell(
-          self,
-          point: PointGeoType,
-      ) -> TiledAffineGridCell:
+        self,
+        point: PointGeoType,
+    ) -> TiledAffineGridCell:
         return self[self._point_to_coords(point)]
