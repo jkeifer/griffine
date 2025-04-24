@@ -1,5 +1,9 @@
 # griffine
 
+[![build-status-image]][build-status]
+[![coverage-status-image]][codecov]
+[![pypi-version]][pypi]
+
 <img src="./images/griffine_logo_flattened_recolor.svg" width=300>
 
 Utilities for working with *gri*ds that have a*ffine* transforms, typically for
@@ -95,4 +99,11 @@ point = Point(
 ## How to say "griffine"
 
 The name of this library is pronounced "grif-fine", as in the words "grift",
-and "fine".
+and "fine". It's also okay to say it "grif-feen", as rhymes with "mean".
+
+[build-status-image]: https://github.com/jkeifer/griffine/actions/workflows/ci.yml/badge.svg
+[build-status]: https://github.com/jkeifer/griffine/actions/workflows/ci.yml
+[coverage-status-image]: https://img.shields.io/codecov/c/github/jkeifer/griffine/main.svg
+[codecov]: https://codecov.io/github/jkeifer/griffine?branch=main
+[pypi-version]: https://img.shields.io/pypi/v/griffine.svg
+[pypi]: https://pypi.org/project/griffine/
