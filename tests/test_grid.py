@@ -206,7 +206,9 @@ def test_grid_tile_bad_coords(coords: tuple[int, int]) -> None:
 
 
 def test_affine_grid_ops() -> None:
-    affine_grid = Grid(10, 5).add_transform(Affine(10, 0, 200000, 0, -10, 6100000))
+    affine_grid = Grid(10, 5).add_transform(Affine(
+        10, 0, 200000, 0, -10, 6100000,
+    ))
     assert affine_grid.width == 5 * 10
     assert affine_grid.heigth == 10 * -10
     assert affine_grid.origin == Point(200000, 6100000)
@@ -218,6 +220,20 @@ def test_affine_grid_ops() -> None:
         200000 + affine_grid.width,
         6100000 + affine_grid.heigth,
     )
+    origin = affine_grid.point_to_cell(affine_grid.origin)
+    assert origin.row == 0
+    assert origin.col == 0
+    other = affine_grid.point_to_cell(Point(200048.9392, 6099934.3343))
+    assert other.row == 6
+    assert other.col == 4
+
+
+def test_affine_grid_get_point_out_of_bounds() -> None:
+    affine_grid = Grid(10, 5).add_transform(Affine(
+        10, 0, 200000, 0, -10, 6100000,
+    ))
+    with pytest.raises(OutOfBoundsError):
+        affine_grid.point_to_cell(Point(5000, 5000))
 
 
 @pytest.mark.parametrize(
@@ -231,3 +247,16 @@ def test_affine_grid_ops() -> None:
 def test_tiling_error1(grid: tuple[int, int], tile_grid: tuple[int, int]) -> None:
     with pytest.raises(InvalidTilingError):
         Grid(*grid).tile_into(Grid(*tile_grid))
+
+
+@pytest.mark.parametrize(
+    ('grid', 'tile_size'),
+    [
+        ((4, 4), (5, 5)),
+        ((4, 4), (8, 1)),
+        ((4, 4), (1, 11)),
+    ],
+)
+def test_tiling_error2(grid: tuple[int, int], tile_size: tuple[int, int]) -> None:
+    with pytest.raises(InvalidTilingError):
+        Grid(*grid).tile_via(Grid(*tile_size))
