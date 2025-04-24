@@ -1,5 +1,5 @@
-from .exceptions import OutOfBoundsError
 from .grid import Affine, Grid
+from .types import Point
 
 try:
     from .__version__ import __version__, __version_tuple__
@@ -10,7 +10,7 @@ except ImportError:
 __all__: list[str] = [
     'Affine',
     'Grid',
-    'OutOfBoundsError',
+    'Point',
     '__version__',
     '__version_tuple__',
 ]

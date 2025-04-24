@@ -1,16 +1,15 @@
 import pytest
 
-from pygeoif import Point
-
 from griffine import (
     Affine,
     Grid,
-    OutOfBoundsError,
+    Point,
 )
 from griffine.exceptions import (
     InvalidCoordinateError,
     InvalidGridError,
     InvalidTilingError,
+    OutOfBoundsError,
 )
 from griffine.grid import Cell
 
