@@ -9,6 +9,7 @@ from griffine.types import (
     GridTileType,
     GridType,
     NonNegativeInt,
+    PointGeoType,
     Rows,
     TileableType,
     TiledCellType,
@@ -66,15 +67,14 @@ class AffineGrid(
             tile_rows=tile_size[0],
             tile_cols=tile_size[1],
             base_grid=self,
-            transform=Affine(
-                self.transform.a * tile_size[0],
-                self.transform.b,
-                self.transform.c,
-                self.transform.d,
-                self.transform.e * tile_size[1],
-                self.transform.f,
-            ),
+            transform=self.transform * Affine.scale(tile_size[1], tile_size[0]),
         )
+
+    def point_to_cell(
+          self,
+          point: PointGeoType,
+      ) -> AffineGridCell:
+        return self[self._point_to_coords(point)]
 
 
 class TiledGrid(TiledGridType[Grid, 'GridTile']):
@@ -99,13 +99,9 @@ class TiledGrid(TiledGridType[Grid, 'GridTile']):
 
     def add_transform(self, transform: Affine) -> TiledAffineGrid:
         base = self.base_grid.add_transform(
-            Affine(
-                transform.a / self.tile_cols,
-                transform.b,
-                transform.c,
-                transform.d,
-                transform.e / self.tile_rows,
-                transform.f,
+            transform * Affine.scale(
+                1 / self.tile_cols,
+                1 / self.tile_rows,
             ),
         )
         return TiledAffineGrid(
@@ -145,6 +141,19 @@ class TiledAffineGrid(
         col: NonNegativeInt,
     ) -> AffineGridTile:
         return AffineGridTile(row=row, col=col, parent_grid=self)
+
+    def point_to_tile(
+          self,
+          point: PointGeoType,
+      ) -> AffineGridTile:
+        return self[self._point_to_coords(point)]
+
+    def point_to_cell(
+        self,
+        point: PointGeoType,
+    ) -> TiledAffineGridCell:
+        tile = self.point_to_tile(point)
+        return tile.point_to_cell(point)
 
 
 class Cell(CellType):
@@ -188,9 +197,11 @@ class AffineGridCell(CellType, TransformableType):
         col: NonNegativeInt,
         parent_grid: TransformableGridType,
     ) -> None:
-        # TODO: transform for cell from parent_grid
-        transform = parent_grid.transform
-        super().__init__(row=row, col=col, transform=transform)
+        super().__init__(
+            row=row,
+            col=col,
+            transform=parent_grid.transform * Affine.translation(col, row),
+        )
         self.parent_grid = parent_grid
 
 
@@ -206,19 +217,17 @@ class TiledAffineGridCell(
         tile_col: NonNegativeInt,
         parent_grid: AffineGridTileType,
     ) -> None:
-        # TODO: transform for cell from parent_grid
-        transform = parent_grid.transform
         super().__init__(
             row=row,
             col=col,
             tile_row=tile_row,
             tile_col=tile_col,
             parent_grid=parent_grid,
-            transform=transform,
+            transform=parent_grid.transform * Affine.translation(col, row),
         )
 
 
-class Tile(TileType[GridCell], CellType):
+class Tile(TileType[GridCell]):
     def __init__(
         self,
         row: NonNegativeInt,
@@ -232,7 +241,7 @@ class Tile(TileType[GridCell], CellType):
         return GridCell(row=row, col=col, parent_grid=self)
 
 
-class GridTile(GridTileType[TiledGridCell], CellType):
+class GridTile(GridTileType[TiledGridCell]):
     def __init__(
         self,
         row: NonNegativeInt,
@@ -282,3 +291,9 @@ class AffineGridTile(AffineGridTileType[TiledAffineGridCell]):
             tile_col=self.col,
             parent_grid=self,
         )
+
+    def point_to_cell(
+          self,
+          point: PointGeoType,
+      ) -> TiledAffineGridCell:
+        return self[self._point_to_coords(point)]

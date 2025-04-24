@@ -6,7 +6,8 @@ from abc import abstractmethod
 from typing import Annotated, Protocol, TypeVar, runtime_checkable
 
 from affine import Affine
-from pygeoif import Point
+from pygeoif import Point, shape
+from pygeoif.types import GeoType
 
 from griffine.exceptions import (
     InvalidCoordinateError,
@@ -22,6 +23,10 @@ Columns = Annotated[PositiveInt, "number of columns"]
 
 GT = TypeVar('GT', bound='GridType')
 GT_cov = TypeVar('GT_cov', bound='GridType', covariant=True)
+
+
+# FUTURE: validation via automatic coercion into a Point type
+PointGeoType = Annotated[GeoType, "geom type is point"]
 
 
 @runtime_checkable
@@ -51,6 +56,7 @@ class CellType(Protocol):
         return (1, 1)
 
 
+@runtime_checkable
 class TiledCellType(CellType, Protocol):
     # TODO parent grid should be the actual grid, and have a tile grid???
     parent_grid: GridTileType
@@ -70,6 +76,7 @@ class TiledCellType(CellType, Protocol):
         self.parent_grid = parent_grid
 
 
+@runtime_checkable
 class TransformableType(Protocol):
     transform: Affine
 
@@ -85,7 +92,6 @@ class TransformableType(Protocol):
     @abstractmethod
     def size(self) -> tuple[Rows, Columns]:  # pragma: no cover
         raise NotImplementedError
-
 
     @property
     def width(self) -> int:
@@ -107,6 +113,15 @@ class TransformableType(Protocol):
     @property
     def antiorigin(self) -> Point:
         return Point(*(self.transform * self.size[::-1]))
+
+
+@runtime_checkable
+class AffineTiledGridCellType(
+    TiledCellType,
+    TransformableType,
+    Protocol,
+):
+    ...
 
 
 CT_cov = TypeVar("CT_cov", bound=CellType, covariant=True)
@@ -165,79 +180,7 @@ class GridType(Protocol[CT_cov]):
         return self._get_cell(row, col)
 
 
-class TileType(GridType[CT_cov], CellType, Protocol[CT_cov]):
-    def __init__(
-        self,
-        row: NonNegativeInt,
-        col: NonNegativeInt,
-        rows: Rows,
-        cols: Columns,
-        **kwargs,
-    ) -> None:
-        super().__init__(row=row, col=col, rows=rows, cols=cols, **kwargs)
-
-
-class GridTileType(TileType[CT_cov], Protocol[CT_cov]):
-    parent_grid: TiledGridType
-
-    def __init__(
-        self,
-        row: NonNegativeInt,
-        col: NonNegativeInt,
-        parent_grid: TiledGridType,
-        **kwargs,
-    ) -> None:
-        # If tile is on the right and/or bottom edge, the size might
-        # not be the same as indicated by the nominal tile dimensions
-        tile_rows = parent_grid.tile_rows
-        tile_cols = parent_grid.tile_cols
-        rows = min(tile_rows, parent_grid.base_grid.rows - (row * tile_rows))
-        cols = min(tile_cols, parent_grid.base_grid.cols - (col * tile_cols))
-
-        super().__init__(row=row, col=col, rows=rows, cols=cols, **kwargs)
-        self.parent_grid = parent_grid
-
-    def tile_coords_to_parent_coords(
-        self,
-        row: NonNegativeInt,
-        col: NonNegativeInt,
-    ) -> tuple[NonNegativeInt, NonNegativeInt]:
-        return (
-            (self.row * self.parent_grid.tile_rows) + row,
-            (self.col * self.parent_grid.tile_cols) + col,
-        )
-
-
-class AffineGridTileType(
-    GridTileType[CT_cov],
-    TransformableType,
-    Protocol[CT_cov],
-):
-    def __init__(
-        self,
-        row: NonNegativeInt,
-        col: NonNegativeInt,
-        parent_grid: TransformableTiledGridType,
-        **kwargs,
-    ) -> None:
-        transform = Affine(
-            parent_grid.transform.a,
-            parent_grid.transform.b,
-            parent_grid.transform.c + (parent_grid.transform.a * col),
-            parent_grid.transform.d,
-            parent_grid.transform.e,
-            parent_grid.transform.f + (parent_grid.transform.e * row),
-        )
-        super().__init__(
-            row=row,
-            col=col,
-            parent_grid=parent_grid,
-            transform=transform,
-            **kwargs,
-        )
-
-
-GTT_cov = TypeVar("GTT_cov", bound=GridTileType, covariant=True)
+GTT_cov = TypeVar("GTT_cov", bound='GridTileType', covariant=True)
 
 
 @runtime_checkable
@@ -298,20 +241,110 @@ class TiledGridType(GridType[GTT_cov], Protocol[GT, GTT_cov]):
         )
 
 
+AGTT_cov = TypeVar("AGTT_cov", bound='AffineGridTileType', covariant=True)
+
+
+@runtime_checkable
 class TransformableGridType(
     GridType[CT_cov],
     TransformableType,
     Protocol[CT_cov],
 ):
-    ...
+    def _point_to_coords(
+        self,
+        point: PointGeoType,
+    ) -> tuple[NonNegativeInt, NonNegativeInt]:
+        _point = shape(point) if not isinstance(point, Point) else point
+        # ignoring type error until v3.0 is officially released
+        col, row = map(
+            math.floor,
+            ~self.transform * (_point.x,_point.y),  # type: ignore
+        )
+        return row, col
 
 
+@runtime_checkable
 class TransformableTiledGridType(
     TiledGridType[GT, GTT_cov],
-    TransformableType,
+    TransformableGridType[GTT_cov],
     Protocol[GT, GTT_cov],
 ):
     ...
+
+
+@runtime_checkable
+class TileType(GridType[CT_cov], CellType, Protocol[CT_cov]):
+    def __init__(
+        self,
+        row: NonNegativeInt,
+        col: NonNegativeInt,
+        rows: Rows,
+        cols: Columns,
+        **kwargs,
+    ) -> None:
+        super().__init__(row=row, col=col, rows=rows, cols=cols, **kwargs)
+
+
+@runtime_checkable
+class GridTileType(TileType[CT_cov], Protocol[CT_cov]):
+    parent_grid: TiledGridType
+
+    def __init__(
+        self,
+        row: NonNegativeInt,
+        col: NonNegativeInt,
+        parent_grid: TiledGridType,
+        **kwargs,
+    ) -> None:
+        # If tile is on the right and/or bottom edge, the size might
+        # not be the same as indicated by the nominal tile dimensions
+        tile_rows = parent_grid.tile_rows
+        tile_cols = parent_grid.tile_cols
+        rows = min(tile_rows, parent_grid.base_grid.rows - (row * tile_rows))
+        cols = min(tile_cols, parent_grid.base_grid.cols - (col * tile_cols))
+
+        super().__init__(row=row, col=col, rows=rows, cols=cols, **kwargs)
+        self.parent_grid = parent_grid
+
+    def tile_coords_to_parent_coords(
+        self,
+        row: NonNegativeInt,
+        col: NonNegativeInt,
+    ) -> tuple[NonNegativeInt, NonNegativeInt]:
+        return (
+            (self.row * self.parent_grid.tile_rows) + row,
+            (self.col * self.parent_grid.tile_cols) + col,
+        )
+
+
+@runtime_checkable
+class AffineGridTileType(
+    GridTileType[CT_cov],
+    TransformableGridType,
+    Protocol[CT_cov],
+):
+    def __init__(
+        self,
+        row: NonNegativeInt,
+        col: NonNegativeInt,
+        parent_grid: TransformableTiledGridType,
+        **kwargs,
+    ) -> None:
+        transform = Affine(
+            parent_grid.transform.a,
+            parent_grid.transform.b,
+            parent_grid.transform.c + (parent_grid.transform.a * col),
+            parent_grid.transform.d,
+            parent_grid.transform.e,
+            parent_grid.transform.f + (parent_grid.transform.e * row),
+        )
+        super().__init__(
+            row=row,
+            col=col,
+            parent_grid=parent_grid,
+            transform=transform,
+            **kwargs,
+        )
 
 
 TGT_cov = TypeVar("TGT_cov", bound=TiledGridType, covariant=True)
@@ -321,6 +354,7 @@ def can_tile_into(grid_size: PositiveInt, tile_count: PositiveInt) -> bool:
     return tile_count == math.ceil(grid_size/math.ceil(grid_size/tile_count))
 
 
+@runtime_checkable
 class TileableType(GridType[CT_cov], Protocol[CT_cov, TGT_cov]):
     @abstractmethod
     def _tiled(
