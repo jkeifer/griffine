@@ -6,6 +6,8 @@ from griffine.types import (
     AffineGridTileType,
     CellType,
     Columns,
+    CRSInput,
+    GridSize,
     GridTileType,
     GridType,
     NonNegativeInt,
@@ -27,8 +29,8 @@ class Grid(TileableType['GridCell', 'TiledGrid']):
 
     def _tiled(
         self,
-        grid_size: tuple[Rows, Columns],
-        tile_size: tuple[Rows, Columns],
+        grid_size: GridSize,
+        tile_size: GridSize,
     ) -> TiledGrid:
         return TiledGrid(
             rows=grid_size[0],
@@ -38,11 +40,16 @@ class Grid(TileableType['GridCell', 'TiledGrid']):
             base_grid=self,
         )
 
-    def add_transform(self, transform: Affine) -> AffineGrid:
+    def add_transform(
+        self,
+        transform: Affine,
+        crs: CRSInput | None = None,
+    ) -> AffineGrid:
         return AffineGrid(
             self.rows,
             self.cols,
             transform,
+            crs,
         )
 
 
@@ -50,16 +57,22 @@ class AffineGrid(
     TileableType['AffineGridCell', 'TiledAffineGrid'],
     TransformableGridType,
 ):
-    def __init__(self, rows: Rows, cols: Columns, transform: Affine) -> None:
-        super().__init__(rows=rows, cols=cols, transform=transform)
+    def __init__(
+        self,
+        rows: Rows,
+        cols: Columns,
+        transform: Affine,
+        crs: CRSInput | None = None,
+    ) -> None:
+        super().__init__(rows=rows, cols=cols, transform=transform, crs=crs)
 
     def _get_cell(self, row: NonNegativeInt, col: NonNegativeInt) -> AffineGridCell:
         return AffineGridCell(row=row, col=col, parent_grid=self)
 
     def _tiled(
         self,
-        grid_size: tuple[Rows, Columns],
-        tile_size: tuple[Rows, Columns],
+        grid_size: GridSize,
+        tile_size: GridSize,
     ) -> TiledAffineGrid:
         return TiledAffineGrid(
             rows=grid_size[0],
@@ -68,6 +81,7 @@ class AffineGrid(
             tile_cols=tile_size[1],
             base_grid=self,
             transform=self.transform * Affine.scale(tile_size[1], tile_size[0]),
+            crs=self.crs,
         )
 
     def point_to_cell(
@@ -97,13 +111,18 @@ class TiledGrid(TiledGridType[Grid, 'GridTile']):
     def _get_cell(self, row: NonNegativeInt, col: NonNegativeInt) -> GridTile:
         return GridTile(row=row, col=col, parent_grid=self)
 
-    def add_transform(self, transform: Affine) -> TiledAffineGrid:
+    def add_transform(
+        self,
+        transform: Affine,
+        crs: CRSInput | None = None,
+    ) -> TiledAffineGrid:
         base = self.base_grid.add_transform(
             transform
             * Affine.scale(
                 1 / self.tile_cols,
                 1 / self.tile_rows,
             ),
+            crs,
         )
         return TiledAffineGrid(
             self.rows,
@@ -112,6 +131,7 @@ class TiledGrid(TiledGridType[Grid, 'GridTile']):
             self.tile_cols,
             base,
             transform,
+            crs,
         )
 
 
@@ -126,6 +146,7 @@ class TiledAffineGrid(
         tile_cols: Columns,
         base_grid: AffineGrid,
         transform: Affine,
+        crs: CRSInput | None = None,
     ) -> None:
         super().__init__(
             rows=rows,
@@ -134,6 +155,7 @@ class TiledAffineGrid(
             tile_cols=tile_cols,
             base_grid=base_grid,
             transform=transform,
+            crs=crs,
         )
 
     def _get_cell(
@@ -202,6 +224,7 @@ class AffineGridCell(CellType, TransformableType):
             row=row,
             col=col,
             transform=parent_grid.transform * Affine.translation(col, row),
+            crs=parent_grid.crs,
         )
         self.parent_grid = parent_grid
 
@@ -225,6 +248,7 @@ class TiledAffineGridCell(
             tile_col=tile_col,
             parent_grid=parent_grid,
             transform=parent_grid.transform * Affine.translation(col, row),
+            crs=parent_grid.crs,
         )
 
 

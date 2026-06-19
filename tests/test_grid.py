@@ -220,15 +220,15 @@ def test_affine_grid_ops() -> None:
         ),
     )
     assert affine_grid.width == 5 * 10
-    assert affine_grid.heigth == 10 * -10
+    assert affine_grid.height == 10 * -10
     assert affine_grid.origin == Point(200000, 6100000)
     assert affine_grid.centroid == Point(
         200000 + (affine_grid.width / 2),
-        6100000 + (affine_grid.heigth / 2),
+        6100000 + (affine_grid.height / 2),
     )
     assert affine_grid.antiorigin == Point(
         200000 + affine_grid.width,
-        6100000 + affine_grid.heigth,
+        6100000 + affine_grid.height,
     )
     origin = affine_grid.point_to_cell(affine_grid.origin)
     assert origin.row == 0
@@ -296,3 +296,75 @@ def test_tiled_affine_ops() -> None:
     assert affine_tile_cell.col == 2343
     assert affine_tile_cell.tile_row == 4
     assert affine_tile_cell.tile_col == 2
+
+
+def test_planar_area_grid_cell_and_tile() -> None:
+    # 10m grid: each cell is 100 units squared.
+    transform = Affine(10, 0, 200000, 0, -10, 6100000)
+    grid = Grid(10, 5).add_transform(transform)
+    assert grid.crs is None
+    assert grid.area == 10 * 5 * 100
+    assert grid[0, 0].area == 100.0
+
+    tile = grid.tile_via(Grid(5, 5))[0, 0]
+    assert tile.area == tile.rows * tile.cols * 100
+    assert tile[0, 0].area == 100.0
+
+
+def test_planar_area_uses_determinant_under_shear() -> None:
+    # Sheared transform: per-cell area is |determinant| = |3*5 - 1*2| = 13.
+    transform = Affine(3, 1, 0, 2, 5, 0)
+    grid = Grid(2, 4).add_transform(transform)
+    assert grid[0, 0].area == 13
+    assert grid.area == 13 * 2 * 4
+
+
+def test_geodesic_area_with_geographic_crs() -> None:
+    pytest.importorskip('pyproj')
+    # 100x100 grid of 0.1 degree cells, a 10x10 degree box from 50N down.
+    transform = Affine(0.1, 0, -120, 0, -0.1, 50)
+    grid = Grid(100, 100).add_transform(transform, crs=4326)
+
+    assert grid.crs is not None
+    assert grid.crs.is_geographic
+    # A ~10x10 degree box near 45N is ~8.74e11 m^2 (the planar deg^2 value
+    # would be 0.1 * 0.1 * 100 * 100 = 100, so this is unambiguously geodesic).
+    assert grid.area == pytest.approx(8.74e11, rel=0.02)
+    assert grid[0, 0].area == pytest.approx(7.98e7, rel=0.02)
+
+
+def test_crs_and_geodesic_area_propagate_to_tiles_and_cells() -> None:
+    pytest.importorskip('pyproj')
+    transform = Affine(0.1, 0, -120, 0, -0.1, 50)
+    tiled = Grid(100, 100).add_transform(transform, crs=4326).tile_via(Grid(10, 10))
+
+    tile = tiled[0, 0]
+    assert tile.crs is not None
+    assert tile.crs.is_geographic
+    assert tile.area == pytest.approx(8.06e9, rel=0.02)
+    assert tile[0, 0].area == pytest.approx(7.98e7, rel=0.02)
+
+
+def test_geographic_crs_via_tiled_grid_add_transform() -> None:
+    pytest.importorskip('pyproj')
+    # Adding a transform to an already-tiled grid: the transform describes the
+    # tile grid, and the CRS must still reach the per-cell base grid.
+    transform = Affine(1.0, 0, -120, 0, -1.0, 50)
+    tiled = Grid(100, 100).tile_via(Grid(10, 10)).add_transform(transform, crs=4326)
+
+    assert tiled.crs is not None
+    assert tiled.crs.is_geographic
+    assert tiled.base_grid.crs is not None
+    cell = tiled[0, 0][0, 0]
+    assert cell.crs is not None
+    # Scaling the tile transform by 1/10 gives 0.1 degree cells at 50N, so the
+    # geodesic cell area is ~7.98e7 m^2 (not the 0.1 * 0.1 planar deg^2 value)...
+    assert cell.area == pytest.approx(7.98e7, rel=0.02)
+    # ...and it matches the same cell computed on the underlying base grid.
+    assert cell.area == pytest.approx(tiled.base_grid[0, 0].area)
+
+
+def test_invalid_crs_fails_at_construction() -> None:
+    exceptions = pytest.importorskip('pyproj.exceptions')
+    with pytest.raises(exceptions.CRSError):
+        Grid(1, 1).add_transform(Affine.identity(), crs='not-a-real-crs')

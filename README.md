@@ -17,6 +17,13 @@ This package is distributed on pypi and can be `pip`-installed:
 pip install griffine
 ```
 
+Geodesic area calculations for geographic coordinate reference systems require
+the optional `crs` extra, which pulls in [`pyproj`](https://pyproj4.github.io/pyproj/):
+
+```commandline
+pip install 'griffine[crs]'
+```
+
 ## Usage
 
 This library is composed of several major classes:
@@ -46,16 +53,30 @@ A `TiledAffineGrid` is to an `AffineGrid` as a `TiledGrid` is to a `Grid`: each
 of the larger `AffineGrid` that was tiled. `TiledAffineGrids` allow finding the
 `AffineTile` containing a `Cell` or a `Point`.
 
-`griffine` does not handle coordinate systems and thus does not do any
-reprojection. It is expected that users ensure they are using a consistent CRS
-between the affine transforms of their grid and any points.
+`griffine`, by default, does not handle coordinate systems and thus does not do
+any reprojection. It is expected that users ensure they are using a consistent
+CRS between the affine transforms of their grid and any points.
+
+The one place this is relaxed is area calculation. Every transformable (an
+`AffineGrid`, `AffineTile`, or `AffineCell`) exposes an `area`. Without a CRS
+this is the planar area in the transform's own units squared; because it derives
+from the transform's determinant it is correct for any projected CRS, even under
+rotation or shear. Optionally, you may associate a CRS with a transform via
+`add_transform(transform, crs=...)` (accepting a `pyproj.CRS` or anything
+`pyproj.CRS.from_user_input` understands, such as an EPSG code). When that CRS is
+geographic, `area` is instead computed geodesically on the CRS's ellipsoid and
+returned in square meters, which for geographic grids differs significantly from
+(and is usually far more useful than) an area in square degrees. The CRS is
+realized and the area is computed at construction time, so any problem (such as
+an unparseable CRS) surfaces immediately. Associating a CRS requires the
+optional `crs` extra (see [Installation](#installation)).
 
 The [Python `__geo_interface__`
 protocol](https://gist.github.com/sgillies/2217756) is supported by all
 operations accepting a `Point` and on the `Point` class itself, to easily allow
 using or casting to point geometries from other Python libraries (`shapely`,
 `odc-geo`, etc.).
-affine_grid = grid.add_transform(transform)affine_cell.antiorigin
+
 ### Examples
 
 ```python
@@ -124,6 +145,36 @@ affine_tile_cell.tile_col  # 2
 #
 #     cell          tile      tile grid    grid
 affine_tile_cell.parent_grid.parent_grid.base_grid is affine_grid  # True
+```
+
+### Area calculations
+
+Every affine-enabled grid, tile, and cell exposes an `area`:
+
+```python
+from griffine import Affine, Grid
+
+# Without a CRS, `area` is planar, in the transform's own units squared.
+# This 10m pixel grid has cells of 100 m² (and is correct even if the
+# transform is rotated or sheared, since it uses the determinant).
+utm = Grid(10, 5).add_transform(Affine(10, 0, 200000, 0, -10, 6100000))
+utm.area         # 5000.0  (10 * 5 cells * 100 m² each)
+utm[0, 0].area   # 100.0
+
+# Associate a geographic CRS (requires the `crs` extra) and `area` is
+# instead computed geodesically, in square meters. A degree is not a
+# constant ground distance, so this is far more useful than an area in
+# square degrees. The CRS is realized and the area computed up front, so
+# an invalid CRS fails immediately rather than on first access.
+geo_transform = Affine(0.1, 0, -120, 0, -0.1, 50)  # 0.1° cells, WGS84 lon/lat
+geo = Grid(100, 100).add_transform(geo_transform, crs=4326)
+geo.area         # ~8.74e11  (m², a ~10° x 10° box near 45°N)
+geo[0, 0].area   # ~7.98e7   (m², a single 0.1° cell at 50°N)
+
+# The CRS (and thus geodesic area) propagates to tiles and their cells.
+tile = geo.tile_via(Grid(10, 10))[0, 0]
+tile.area        # ~8.06e9   (m²)
+tile[0, 0].area  # ~7.98e7   (m²)
 ```
 
 ## How to say "griffine"
