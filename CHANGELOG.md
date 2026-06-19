@@ -9,7 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `area` on affine grids, tiles, and cells. Without a CRS it is the planar area
+  in the transform's own units squared (derived from the transform determinant,
+  so correct under rotation/shear).
+- Optional association of a CRS with a transform via `add_transform(transform,
+  crs=...)`. When the CRS is geographic, `area` is computed geodesically (in
+  square meters) on the CRS's ellipsoid. Requires the new optional `crs` extra
+  (`pip install 'griffine[crs]'`, which pulls in `pyproj`).
+- `GridSize` type alias and the `realize_crs`, `planar_area`, and
+  `geodesic_area` helpers.
+
 ### Changed
+
+- The misspelled `heigth` property was renamed to the correct `height`. It is
+  defined on `TransformableType` and inherited by every concrete transformable:
+  `AffineGrid`, `TiledAffineGrid`, `AffineGridCell`, `TiledAffineGridCell`, and
+  `AffineGridTile`.
 
 ### Deprecated
 

@@ -18,6 +18,11 @@ dynamic = [
 [project.urls]
 Repository = 'https://github.com/jkeifer/griffine'
 
+[project.optional-dependencies]
+crs = [
+    "pyproj>=3.7.2",
+]
+
 [build-system]
 requires = [
     "hatchling",

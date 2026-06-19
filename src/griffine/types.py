@@ -3,7 +3,14 @@ from __future__ import annotations
 import math
 
 from abc import abstractmethod
-from typing import Annotated, Protocol, TypeVar, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Protocol,
+    TypeAlias,
+    TypeVar,
+    runtime_checkable,
+)
 
 from affine import Affine
 from pygeoif import Point, shape
@@ -16,10 +23,18 @@ from griffine.exceptions import (
     OutOfBoundsError,
 )
 
+if TYPE_CHECKING:
+    from pyproj import CRS
+
+# A CRS may be associated with a transform as a pyproj.CRS or anything
+# pyproj.CRS.from_user_input understands (e.g. an EPSG int or a string).
+CRSInput: TypeAlias = 'CRS | str | int'
+
 NonNegativeInt = Annotated[int, '>=0']
 PositiveInt = Annotated[int, '>=1']
 Rows = Annotated[PositiveInt, 'number of rows']
 Columns = Annotated[PositiveInt, 'number of columns']
+GridSize: TypeAlias = tuple[Rows, Columns]
 
 GT = TypeVar('GT', bound='GridType')
 GT_cov = TypeVar('GT_cov', bound='GridType', covariant=True)
@@ -52,7 +67,7 @@ class CellType(Protocol):
         self.col = col
 
     @property
-    def size(self) -> tuple[Rows, Columns]:
+    def size(self) -> GridSize:
         return (1, 1)
 
 
@@ -75,21 +90,83 @@ class TiledCellType(CellType, Protocol):
         self.parent_grid = parent_grid
 
 
+def realize_crs(crs: CRSInput | None) -> CRS | None:
+    """Parse `crs` into a `pyproj.CRS`, or return None if `crs` is None.
+
+    Importing pyproj is deferred to here so the optional `crs` extra is only
+    required when a CRS is actually associated with a transform.
+    """
+    if crs is None:
+        return None
+
+    try:
+        from pyproj import CRS
+    except ModuleNotFoundError as e:  # pragma: no cover
+        raise ImportError(
+            "associating a CRS requires the 'crs' extra: pip install 'griffine[crs]'",
+        ) from e
+
+    return CRS.from_user_input(crs)
+
+
+def planar_area(transform: Affine, size: GridSize) -> float:
+    """Planar area of `size` cells under `transform`, in its own units squared.
+
+    Because it derives from the transform's determinant, it is correct for
+    any transfrom in any projected CRS, even under rotation or shear.
+    """
+    rows, cols = size
+    return abs(transform.determinant) * rows * cols
+
+
+def geodesic_area(
+    transform: Affine,
+    size: GridSize,
+    crs: CRS,
+) -> float:
+    """Geodesic area of `size` cells under `transform`, in square meters.
+
+    Computed on `crs`'s ellipsoid; `crs` must be geographic. For geographic
+    grids this differs significantly from (and is usually more useful than)
+    the planar area in square degrees.
+    """
+    rows, cols = size
+    # Corners in grid space, traced around the cell footprint.
+    corners = ((0, 0), (cols, 0), (cols, rows), (0, rows))
+    lons, lats = zip(*(transform * corner for corner in corners), strict=True)
+
+    geod = crs.get_geod()
+    if geod is None:
+        raise RuntimeError(f'geographic CRS {crs} unexpectedly has no ellipsoid')
+
+    area, _ = geod.polygon_area_perimeter(lons, lats)
+    return abs(area)
+
+
 @runtime_checkable
 class TransformableType(Protocol):
     transform: Affine
+    crs: CRS | None
+    area: float
 
     def __init__(
         self,
         transform: Affine,
+        crs: CRSInput | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self.transform = transform
+        self.crs = realize_crs(crs)
+
+        if self.crs is not None and self.crs.is_geographic:
+            self.area = geodesic_area(self.transform, self.size, self.crs)
+        else:
+            self.area = planar_area(self.transform, self.size)
 
     @property
     @abstractmethod
-    def size(self) -> tuple[Rows, Columns]:  # pragma: no cover
+    def size(self) -> GridSize:  # pragma: no cover
         raise NotImplementedError
 
     @property
@@ -97,7 +174,7 @@ class TransformableType(Protocol):
         return self.transform.a * self.size[1]
 
     @property
-    def heigth(self) -> int:
+    def height(self) -> int:
         return self.transform.e * self.size[0]
 
     @property
@@ -136,19 +213,22 @@ class GridType(Protocol[CT_cov]):
         cols: Columns,
         **kwargs,
     ) -> None:
-        super().__init__(**kwargs)
-
         if rows < 1:
             raise InvalidGridError('grid rows must be 1 or greater')
 
         if cols < 1:
             raise InvalidGridError('grid cols must be 1 or greater')
 
+        # Assign before delegating to super so that `size` is available to
+        # deeper mixins during construction (e.g. TransformableType computes
+        # its area eagerly and needs `size`).
         self.rows = rows
         self.cols = cols
 
+        super().__init__(**kwargs)
+
     @property
-    def size(self) -> tuple[Rows, Columns]:
+    def size(self) -> GridSize:
         return self.rows, self.cols
 
     def linear_index(self, cell: CellType) -> NonNegativeInt:
@@ -207,7 +287,7 @@ class TiledGridType(GridType[GTT_cov], Protocol[GT, GTT_cov]):
         self.base_grid = base_grid
 
     @property
-    def tile_size(self) -> tuple[Rows, Columns]:
+    def tile_size(self) -> GridSize:
         return self.tile_rows, self.tile_cols
 
     @abstractmethod
@@ -344,6 +424,7 @@ class AffineGridTileType(
             * Affine.translation(
                 *parent_grid.tile_coords_to_base_coords(0, 0, row, col)[::-1],
             ),
+            crs=parent_grid.crs,
             **kwargs,
         )
 
@@ -360,8 +441,8 @@ class TileableType(GridType[CT_cov], Protocol[CT_cov, TGT_cov]):
     @abstractmethod
     def _tiled(
         self,
-        grid_size: tuple[Rows, Columns],
-        tile_size: tuple[Rows, Columns],
+        grid_size: GridSize,
+        tile_size: GridSize,
     ) -> TGT_cov:  # pragma: no cover
         raise NotImplementedError
 
